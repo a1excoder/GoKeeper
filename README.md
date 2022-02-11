@@ -1,0 +1,2 @@
+# GoKeeper
+local notes server
