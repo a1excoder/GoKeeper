@@ -113,11 +113,20 @@ func (user *User) GetNotesNumberByUserId(db *sqlx.DB) (count int, err error) {
 	return count, nil
 }
 
-func (user *User) GetNotesByTitle(db *sqlx.DB, title string) ([]Note, error) {
+func (user *User) GetNotesNumberByTitle(db *sqlx.DB, title string) (int, error) {
 	var count int
 
 	row := db.QueryRow("select count(*) from notes where user_id=? and title like ?", user.Id, "%"+title+"%")
 	err := row.Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+
+	return count, nil
+}
+
+func (user *User) GetNotesByTitle(db *sqlx.DB, title string) ([]Note, error) {
+	count, err := user.GetNotesNumberByTitle(db, title)
 	if err != nil {
 		return nil, err
 	}
@@ -153,11 +162,20 @@ func (data *Note) CreateNote(db *sqlx.DB, user *User) error {
 	return tx.Commit()
 }
 
-func (user *User) GetNotesByUser(db *sqlx.DB) ([]Note, error) {
+func (user *User) GetNotesNumberByUser(db *sqlx.DB) (int, error) {
 	var count int
 
 	row := db.QueryRow("select count(*) from notes where user_id=?", user.Id)
 	err := row.Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+
+	return count, nil
+}
+
+func (user *User) GetNotesByUser(db *sqlx.DB) ([]Note, error) {
+	count, err := user.GetNotesNumberByUser(db)
 	if err != nil {
 		return nil, err
 	}

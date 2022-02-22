@@ -26,6 +26,7 @@ const (
 	GetAllMyNotesT     = 8
 	GetLikeTitleNotesT = 9
 	LogoutT            = 10
+	GetCountAllMyNotes = 11
 )
 
 type MessageData struct {
@@ -35,6 +36,11 @@ type MessageData struct {
 
 type ErrorMessageData struct {
 	ErrorText string `json:"error_text"`
+}
+
+type NoteSliceData struct {
+	Count int
+	Notes []Note
 }
 
 func ClientMsgWorker(connection net.Conn, db *sqlx.DB, user *User) error {
@@ -121,47 +127,61 @@ func ClientMsgWorker(connection net.Conn, db *sqlx.DB, user *User) error {
 				return err
 			}
 		case GetAllMyNotesT:
+			note_slice := NoteSliceData{}
+
 			notes, err := user.GetNotesByUser(db)
 			if err != nil {
 				return err
 			}
 
-			notes_data, err := json.Marshal(notes)
+			note_slice.Notes = notes
+			note_slice.Count, err = user.GetNotesNumberByUser(db)
+			if err != nil {
+				return err
+			}
+
+			note_slice_data, err := json.Marshal(note_slice)
 			if err != nil {
 				return err
 			}
 
 			msg.MessageTypeStatus = SuccessT
-			msg.Data = notes_data
+			msg.Data = note_slice_data
 
 			msg_data, err := json.Marshal(msg)
 			if err != nil {
 				return err
 			}
 
-			_, err = connection.Write(msg_data)
-			if err != nil {
+			if _, err = connection.Write(msg_data); err != nil {
 				return err
 			}
 
 			log.Printf("client(%s) notes has been sent\n", connection.RemoteAddr().String())
 		case GetLikeTitleNotesT:
+			note_slice := NoteSliceData{}
+
 			if err = json.Unmarshal(msg.Data, &note); err != nil {
 				return err
 			}
 
-			notes, err := user.GetNotesByTitle(db, note.Title)
+			note_slice.Notes, err = user.GetNotesByTitle(db, note.Title)
 			if err != nil {
 				return err
 			}
 
-			notes_data, err := json.Marshal(notes)
+			note_slice.Count, err = user.GetNotesNumberByTitle(db, note.Title)
+			if err != nil {
+				return err
+			}
+
+			note_slice_data, err := json.Marshal(note_slice)
 			if err != nil {
 				return err
 			}
 
 			msg.MessageTypeStatus = SuccessT
-			msg.Data = notes_data
+			msg.Data = note_slice_data
 
 			msg_data, err := json.Marshal(msg)
 			if err != nil {
