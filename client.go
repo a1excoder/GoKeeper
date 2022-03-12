@@ -42,7 +42,7 @@ func (user User) ConnectToServer(host, port string, Type int) (net.Conn, error) 
 	} else if msg.MessageTypeStatus == ErrorT {
 		err_data := ErrorMessageData{}
 
-		if err := json.Unmarshal(b, &err_data); err != nil {
+		if err := json.Unmarshal(msg.Data, &err_data); err != nil {
 			return nil, err
 		}
 

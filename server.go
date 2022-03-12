@@ -43,47 +43,47 @@ type NoteSliceData struct {
 	Notes []Note
 }
 
-func ClientMsgWorker(connection net.Conn, db *sqlx.DB, user *User) error {
+func ClientMsgWorker(connection net.Conn, db *sqlx.DB, user *User) (bool, error) {
 	msg := new(MessageData)
 	note := new(Note)
 
 	for {
 		bytes, err := GetMessageData(connection)
 		if err != nil {
-			return err
+			return true, err
 		}
 
 		if err = json.Unmarshal(bytes, &msg); err != nil {
-			return err
+			return true, err
 		}
 
 		switch msg.MessageTypeStatus {
 		case NewNoteT:
 			if err = json.Unmarshal(msg.Data, &note); err != nil {
-				return err
+				return true, err
 			}
 
 			if err = note.CreateNote(db, user); err != nil {
-				return err
+				return false, err
 			}
 
 			log.Printf("client(%s) note has been created\n", connection.RemoteAddr().String())
 			if err = SendStatus(connection, SuccessT); err != nil {
-				return err
+				return true, err
 			}
 		case GetNoteT:
 			if err = json.Unmarshal(msg.Data, &note); err != nil {
-				return err
+				return true, err
 			}
 
 			note, err = user.GetNoteById(db, note.Id)
 			if err != nil {
-				return err
+				return false, err
 			}
 
 			note_data, err := json.Marshal(note)
 			if err != nil {
-				return err
+				return true, err
 			}
 
 			msg.MessageTypeStatus = SuccessT
@@ -91,58 +91,58 @@ func ClientMsgWorker(connection net.Conn, db *sqlx.DB, user *User) error {
 
 			msg_data, err := json.Marshal(msg)
 			if err != nil {
-				return err
+				return true, err
 			}
 
 			_, err = connection.Write(msg_data)
 			if err != nil {
-				return err
+				return true, err
 			}
 
 			log.Printf("client(%s) note has been sent\n", connection.RemoteAddr().String())
 		case UpdateNoteT:
 			if err = json.Unmarshal(msg.Data, &note); err != nil {
-				return err
+				return true, err
 			}
 
 			if err = user.EditNoteById(db, *note); err != nil {
-				return err
+				return false, err
 			}
 
 			log.Printf("client(%s) note has been updated\n", connection.RemoteAddr().String())
 			if err = SendStatus(connection, SuccessT); err != nil {
-				return err
+				return true, err
 			}
 		case DeleteNoteT:
 			if err = json.Unmarshal(msg.Data, &note); err != nil {
-				return err
+				return true, err
 			}
 
 			if err = user.DeleteNoteById(db, *note); err != nil {
-				return err
+				return false, err
 			}
 
 			log.Printf("client(%s) note has been deleted\n", connection.RemoteAddr().String())
 			if err = SendStatus(connection, SuccessT); err != nil {
-				return err
+				return true, err
 			}
 		case GetAllMyNotesT:
 			note_slice := NoteSliceData{}
 
 			notes, err := user.GetNotesByUser(db)
 			if err != nil {
-				return err
+				return false, err
 			}
 
 			note_slice.Notes = notes
 			note_slice.Count, err = user.GetNotesNumberByUser(db)
 			if err != nil {
-				return err
+				return false, err
 			}
 
 			note_slice_data, err := json.Marshal(note_slice)
 			if err != nil {
-				return err
+				return true, err
 			}
 
 			msg.MessageTypeStatus = SuccessT
@@ -150,11 +150,11 @@ func ClientMsgWorker(connection net.Conn, db *sqlx.DB, user *User) error {
 
 			msg_data, err := json.Marshal(msg)
 			if err != nil {
-				return err
+				return true, err
 			}
 
 			if _, err = connection.Write(msg_data); err != nil {
-				return err
+				return true, err
 			}
 
 			log.Printf("client(%s) notes has been sent\n", connection.RemoteAddr().String())
@@ -162,22 +162,22 @@ func ClientMsgWorker(connection net.Conn, db *sqlx.DB, user *User) error {
 			note_slice := NoteSliceData{}
 
 			if err = json.Unmarshal(msg.Data, &note); err != nil {
-				return err
+				return true, err
 			}
 
 			note_slice.Notes, err = user.GetNotesByTitle(db, note.Title)
 			if err != nil {
-				return err
+				return false, err
 			}
 
 			note_slice.Count, err = user.GetNotesNumberByTitle(db, note.Title)
 			if err != nil {
-				return err
+				return false, err
 			}
 
 			note_slice_data, err := json.Marshal(note_slice)
 			if err != nil {
-				return err
+				return true, err
 			}
 
 			msg.MessageTypeStatus = SuccessT
@@ -185,21 +185,15 @@ func ClientMsgWorker(connection net.Conn, db *sqlx.DB, user *User) error {
 
 			msg_data, err := json.Marshal(msg)
 			if err != nil {
-				return err
+				return true, err
 			}
 
 			_, err = connection.Write(msg_data)
 			if err != nil {
-				return err
+				return true, err
 			}
 
 			log.Printf("client(%s) notes has been sent\n", connection.RemoteAddr().String())
-		case LogoutT:
-			if err = SendStatus(connection, SuccessT); err != nil {
-				return err
-			}
-
-			return nil
 		}
 
 	}
@@ -234,11 +228,26 @@ func ClientWorker(connection net.Conn, db *sqlx.DB, ch chan struct{}) {
 			goto End
 		}
 
-		err = ClientMsgWorker(connection, db, user)
-		if err != nil {
-			log.Printf("client(%s) %s\n", connection.RemoteAddr().String(), err)
-			SendErrorMsg(connection, err.Error())
+		for {
+			status, err := ClientMsgWorker(connection, db, user)
+			if status {
+				if err != nil {
+					log.Printf("client(%s) %s\n", connection.RemoteAddr().String(), err)
+					if err = SendErrorMsg(connection, err.Error()); err != nil {
+						log.Printf("client(%s) %s\n", connection.RemoteAddr().String(), err)
+					}
+				}
+				break
+			}
+			if err != nil {
+				if err = SendErrorMsg(connection, err.Error()); err != nil {
+					log.Println(err)
+					break
+				}
+
+			}
 		}
+
 	}
 
 End:
@@ -353,7 +362,7 @@ func StartRoutineServer(host, port string, max_conn int, db *sqlx.DB) error {
 }
 
 func GetMessageData(connection net.Conn) ([]byte, error) {
-	data := make([]byte, 4096)
+	data := make([]byte, 8192)
 	n, err := connection.Read(data)
 	if err != nil {
 		return nil, err
